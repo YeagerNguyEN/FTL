@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Battle Ship Game 2 Players</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        display: flex;
+        gap: 30px;
+        justify-content: center;
+        margin: 20px;
+      }
+      .player {
+        border: 2px solid #444;
+        padding: 10px;
+      }
+      h2 {
+        margin-top: 0;
+      }
+      .boards {
+        display: flex;
+        gap: 10px;
+      }
+      table {
+        border-collapse: collapse;
+      }
+      td {
+        width: 30px;
+        height: 30px;
+        border: 1px solid #999;
+        text-align: center;
+        vertical-align: middle;
+        cursor: pointer;
+        user-select: none;
+        font-weight: bold;
+      }
+      td.placed {
+        background-color: #8fc;
+      }
+      td.hit-body {
+        background-color: #f77;
+      }
+      td.hit-head {
+        background-color: #f00;
+        color: white;
+      }
+      td.miss {
+        background-color: #ccc;
+      }
+      #info {
+        text-align: center;
+        margin-top: 20px;
+        font-weight: bold;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="player" id="player1">
+      <h2>Player 1</h2>
+      <div class="boards">
+        <div>
+          <div><b>Place your planes</b></div>
+          <table id="p1-place"></table>
+        </div>
+        <div>
+          <div><b>Shooting board</b></div>
+          <table id="p1-shoot"></table>
+        </div>
+      </div>
+    </div>
+
+    <div class="player" id="player2">
+      <h2>Player 2</h2>
+      <div class="boards">
+        <div>
+          <div><b>Place your planes</b></div>
+          <table id="p2-place"></table>
+        </div>
+        <div>
+          <div><b>Shooting board</b></div>
+          <table id="p2-shoot"></table>
+        </div>
+      </div>
+    </div>
+
+    <div id="info">Player 1's turn to place planes</div>
+
+    <script>
+      // Constants
+      const ROWS = 10;
+      const COLS = 10;
+      const PLANES_PER_PLAYER = 3;
+      // Plane shape relative positions (x,y) relative to "head" at (0,0)
+      const planeShape = [
+        [0, 0], // head
+        [-1, 1],
+        [0, 1],
+        [1, 1], // first row below head
+        [0, 2], // tail below first row
+        [-1, 3],
+        [0, 3],
+        [1, 3], // last row of body
+      ];
+
+      // State
+      let gameState = {
+        players: [
+          {
+            placeBoard: [], // 2D arrays for plane placement: 0 empty, 'H' head, 'B' body
+            shootBoard: [], // 2D arrays for shots: null/ 'M' miss / 'B' body hit / 'D' head hit
+            planesPlaced: 0,
+          },
+          {
+            placeBoard: [],
+            shootBoard: [],
+            planesPlaced: 0,
+          },
+        ],
+        phase: "placing", // 'placing' or 'shooting'
+        currentPlayer: 0, // 0 or 1
+        currentPlanePos: null,
+        currentPlaneDirection: "down", // For future: can add rotation
+      };
+
+      // Initialize boards (empty)
+      function initBoards() {
+        for (let p = 0; p < 2; p++) {
+          gameState.players[p].placeBoard = Array.from({ length: ROWS }, () =>
+            Array(COLS).fill(0)
+          );
+          gameState.players[p].shootBoard = Array.from({ length: ROWS }, () =>
+            Array(COLS).fill(null)
+          );
+        }
+      }
+      initBoards();
+
+      // Build HTML tables for boards
+      function buildBoardHTML(tableId, isPlaceBoard, playerIndex) {
+        const table = document.getElementById(tableId);
+        table.innerHTML = "";
+        for (let r = 0; r < ROWS; r++) {
+          let tr = document.createElement("tr");
+          for (let c = 0; c < COLS; c++) {
+            let td = document.createElement("td");
+            td.dataset.row = r;
+            td.dataset.col = c;
+            if (isPlaceBoard) {
+              td.addEventListener("click", () =>
+                placePlaneCell(playerIndex, r, c)
+              );
+            } else {
+              td.addEventListener("click", () => shootCell(playerIndex, r, c));
+            }
+            tr.appendChild(td);
+          }
+          table.appendChild(tr);
+        }
+      }
+      buildBoardHTML("p1-place", true, 0);
+      buildBoardHTML("p2-place", true, 1);
+      buildBoardHTML("p1-shoot", false, 0);
+      buildBoardHTML("p2-shoot", false, 1);
+
+      // Helpers
+      function canPlacePlane(board, row, col) {
+        for (let [dx, dy] of planeShape) {
+          let x = col + dx;
+          let y = row + dy;
+          if (x < 0 || x >= COLS || y < 0 || y >= ROWS) return false;
+          if (board[y][x] !== 0) return false;
+        }
+        return true;
+      }
+
+      function placePlaneOnBoard(board, row, col) {
+        // Mark head and body
+        board[row][col] = "H";
+        for (let [dx, dy] of planeShape.slice(1)) {
+          let x = col + dx;
+          let y = row + dy;
+          board[y][x] = "B";
+        }
+      }
+
+      function renderBoards() {
+        for (let p = 0; p < 2; p++) {
+          // placeBoard render
+          const placeTable = document.getElementById(`p${p + 1}-place`);
+          for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+              const td = placeTable.rows[r].cells[c];
+              let val = gameState.players[p].placeBoard[r][c];
+              td.className = "";
+              td.textContent = "";
+              if (val === "H") {
+                td.classList.add("placed");
+                td.textContent = "H";
+                td.style.color = "red";
+              } else if (val === "B") {
+                td.classList.add("placed");
+                td.textContent = "B";
+                td.style.color = "darkgreen";
+              }
+            }
+          }
+          // shootBoard render
+          const shootTable = document.getElementById(`p${p + 1}-shoot`);
+          for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+              const td = shootTable.rows[r].cells[c];
+              let val = gameState.players[p].shootBoard[r][c];
+              td.className = "";
+              td.textContent = "";
+              if (val === "M") {
+                td.classList.add("miss");
+                td.textContent = "M";
+                td.style.color = "black";
+              } else if (val === "B") {
+                td.classList.add("hit-body");
+                td.textContent = "B";
+                td.style.color = "black";
+              } else if (val === "D") {
+                td.classList.add("hit-head");
+                td.textContent = "D";
+              }
+            }
+          }
+        }
+      }
+
+      // Player tries to place plane
+      function placePlaneCell(player, row, col) {
+        if (gameState.phase !== "placing") return alert("Not placing phase!");
+        if (player !== gameState.currentPlayer)
+          return alert("It's not your turn to place planes.");
+        if (!canPlacePlane(gameState.players[player].placeBoard, row, col)) {
+          alert("Cannot place plane here, out of bounds or overlap!");
+          return;
+        }
+        placePlaneOnBoard(gameState.players[player].placeBoard, row, col);
+        gameState.players[player].planesPlaced++;
+        renderBoards();
+        if (gameState.players[player].planesPlaced >= PLANES_PER_PLAYER) {
+          if (gameState.currentPlayer === 0) {
+            gameState.currentPlayer = 1;
+            updateInfo(
+              `Player 2, place your planes (${PLANES_PER_PLAYER} total)`
+            );
+          } else {
+            gameState.phase = "shooting";
+            gameState.currentPlayer = 0;
+            updateInfo(`All planes placed. Player 1's turn to shoot!`);
+          }
+        } else {
+          updateInfo(
+            `Player ${gameState.currentPlayer + 1}, place plane #${
+              gameState.players[player].planesPlaced + 1
+            }`
+          );
+        }
+      }
+
+      // Player shoots
+      function shootCell(player, row, col) {
+        if (gameState.phase !== "shooting")
+          return alert("Planes not placed yet!");
+        if (player !== gameState.currentPlayer)
+          return alert("It's not your turn to shoot!");
+        let enemy = 1 - player;
+        let enemyPlaceBoard = gameState.players[enemy].placeBoard;
+        let shootBoard = gameState.players[player].shootBoard;
+
+        if (shootBoard[row][col] !== null) {
+          alert("You already shot this cell!");
+          return;
+        }
+
+        if (enemyPlaceBoard[row][col] === "H") {
+          shootBoard[row][col] = "D"; // Destroy head
+          updateInfo(`Player ${player + 1} hit enemy plane's HEAD!`);
+        } else if (enemyPlaceBoard[row][col] === "B") {
+          shootBoard[row][col] = "B"; // Hit body
+          updateInfo(`Player ${player + 1} hit enemy plane's BODY!`);
+        } else {
+          shootBoard[row][col] = "M"; // Miss
+          updateInfo(`Player ${player + 1} missed.`);
+        }
+        renderBoards();
+
+        // Check win condition: all enemy heads destroyed
+        let headsLeft = 0;
+        for (let r = 0; r < ROWS; r++) {
+          for (let c = 0; c < COLS; c++) {
+            if (enemyPlaceBoard[r][c] === "H" && shootBoard[r][c] !== "D")
+              headsLeft++;
+          }
+        }
+        if (headsLeft === 0) {
+          updateInfo(`Player ${player + 1} WINS! All enemy planes destroyed.`);
+          // Disable further clicks
+          disableAllClicks();
+          return;
+        }
+
+        // Change turn
+        gameState.currentPlayer = enemy;
+        updateInfo(`Player ${gameState.currentPlayer + 1}'s turn to shoot.`);
+      }
+
+      function updateInfo(text) {
+        document.getElementById("info").textContent = text;
+      }
+
+      function disableAllClicks() {
+        for (let p = 0; p < 2; p++) {
+          // Remove all event listeners (simplest is to replace tables)
+          let placeTable = document.getElementById(`p${p + 1}-place`);
+          let shootTable = document.getElementById(`p${p + 1}-shoot`);
+          placeTable.replaceWith(placeTable.cloneNode(true));
+          shootTable.replaceWith(shootTable.cloneNode(true));
+        }
+      }
+
+      renderBoards();
+      updateInfo(`Player 1, place plane #1`);
+    </script>
+  </body>
+</html>
